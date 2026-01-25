@@ -1,132 +1,153 @@
 import streamlit as st
 import pandas as pd
-import numpy as np
-from sklearn.preprocessing import MinMaxScaler
 import joblib
+import numpy as np
+
+# =====================================================
+# APLIKASI PREDIKSI RISIKO DIABETES (FINAL – SESUAI ML)
+# =====================================================
 
 def prediction_app_diabetes():
-    st.title("Sistem Prediksi Risiko Diabetes")
-    st.write("Masukkan data medis pasien untuk memprediksi risiko diabetes menggunakan model Logistic Regression.")
-    
-    # 1. Load Model & Metadata
-    # Menggunakan try-except untuk menangani jika file model belum di-generate
+
+    st.title("🩺 Sistem Prediksi Risiko Diabetes")
+    st.write("Aplikasi ini menggunakan **Machine Learning (Logistic Regression)** untuk memprediksi risiko diabetes berdasarkan data medis pasien.")
+
+    # =====================================================
+    # LOAD MODEL & FEATURE
+    # =====================================================
     try:
         model = joblib.load("model_diabetes.pkl")
-        feature_names = joblib.load("diabetes_features.pkl")
-    except FileNotFoundError:
-        st.error("⚠️ File 'model_diabetes.pkl' tidak ditemukan. Harap jalankan tab 'Machine Learning' terlebih dahulu untuk melatih model.")
-        return
+        features = joblib.load("diabetes_features.pkl")
+    except:
+        st.error("❌ Model atau file fitur tidak ditemukan.")
+        st.stop()
 
-    # 2. Form Input Pengguna (Disesuaikan dengan diabetes (2).csv)
-    st.write("### Input Data Medis")
-    col1, col2, col3, col4 = st.columns(4)
-    with col1:
-        pregnancies = st.number_input("Jumlah Kehamilan", 0, 20, 0)
-    with col2:
-        glucose = st.number_input("Kadar Glukosa (mg/dL)", 0, 300, 100)
-    with col3:
-        blood_pressure = st.number_input("Tekanan Darah (mm Hg)", 0, 150, 70)
-    with col4:
-        skin_thickness = st.number_input("Ketebalan Kulit (mm)", 0, 100, 20)
+    # =====================================================
+    # FORM INPUT
+    # =====================================================
+    with st.form("form_prediksi"):
 
-    col1, col2, col3, col4 = st.columns(4)
-    with col1:
-        insulin = st.number_input("Kadar Insulin (mu U/ml)", 0, 900, 80)
-    with col2:
-        bmi = st.number_input("BMI (Indeks Massa Tubuh)", 0.0, 70.0, 25.0)
-    with col3:
-        dpf = st.number_input("Diabetes Pedigree Function", 0.0, 3.0, 0.5)
-    with col4:
-        age = st.number_input("Usia (Tahun)", 1, 120, 30)
+        st.subheader("📋 Input Data Medis Pasien")
 
-    # 3. Logika Kategori Otomatis (Sama seperti referensi dashboard Anda)
-    st.write("---")
-    col1, col2, col3 = st.columns(3)
+        col1, col2 = st.columns(2)
 
-    # Age Category
-    with col1:
-        if age <= 30:
-            age_cat, color = "Young Adult", "#4CAF50"
-        elif age <= 50:
-            age_cat, color = "Middle Aged", "#EBD300"
+        with col1:
+            pregnancies = st.number_input("Jumlah Kehamilan", 0, 20, 0)
+            glucose = st.number_input("Kadar Glukosa (mg/dL)", 0, 300, 120)
+            blood_pressure = st.number_input("Tekanan Darah (mmHg)", 0, 200, 70)
+            skin_thickness = st.number_input("Ketebalan Kulit (mm)", 0, 100, 20)
+
+        with col2:
+            insulin = st.number_input("Kadar Insulin (mu U/ml)", 0, 900, 80)
+            bmi = st.number_input("BMI", 10.0, 70.0, 26.0)
+            dpf = st.number_input("Diabetes Pedigree Function", 0.0, 3.0, 0.5)
+            age = st.number_input("Usia", 1, 120, 35)
+
+        submit = st.form_submit_button("🔍 Prediksi")
+
+    # =====================================================
+    # PROSES PREDIKSI
+    # =====================================================
+    if submit:
+
+        input_data = pd.DataFrame([{
+            "Pregnancies": pregnancies,
+            "Glucose": glucose,
+            "BloodPressure": blood_pressure,
+            "SkinThickness": skin_thickness,
+            "Insulin": insulin,
+            "BMI": bmi,
+            "DiabetesPedigreeFunction": dpf,
+            "Age": age
+        }])
+
+        # pastikan urutan fitur sama persis
+        input_data = input_data[features]
+
+        # ===============================
+        # PREDIKSI MODEL
+        # ===============================
+        prediction = model.predict(input_data)[0]
+        probability = model.predict_proba(input_data)[0][1]
+
+        st.write("---")
+        st.subheader("📊 Hasil Prediksi Machine Learning")
+
+        st.metric("Probabilitas Diabetes", f"{probability*100:.2f}%")
+
+        # =====================================================
+        # INTERPRETASI BERDASARKAN OUTPUT MODEL
+        # =====================================================
+
+        if prediction == 1:
+            st.error("🚨 MODEL MEMPERKIRAKAN PASIEN MENGALAMI DIABETES")
+            status = "POSITIF DIABETES"
         else:
-            age_cat, color = "Senior", "#F44336"
-        st.markdown(f"""<div style="background:{color}; padding:10px; border-radius:10px; text-align:center; color:#fff;">
-                    <div style="font-size:13px;">Kategori Usia</div>
-                    <div style="font-size:16px;font-weight:bold;">{age_cat}</div></div>""", unsafe_allow_html=True)
+            st.success("✅ MODEL MEMPERKIRAKAN PASIEN TIDAK DIABETES")
+            status = "NEGATIF DIABETES"
 
-    # BMI Category
-    with col2:
-        if bmi < 18.5:
-            bmi_cat, color = "Underweight", "#4DA6FF"
-        elif bmi < 25:
-            bmi_cat, color = "Normal", "#4CAF50"
-        elif bmi < 30:
-            bmi_cat, color = "Overweight", "#EBD300"
+        st.write(f"**Hasil Klasifikasi:** {status}")
+
+        # =====================================================
+        # INTERPRETASI ILMIAH
+        # =====================================================
+        st.subheader("📘 Interpretasi Model")
+
+        st.write(
+            f"Berdasarkan hasil pemodelan menggunakan algoritma Logistic Regression, "
+            f"pasien diprediksi berada pada kondisi **{status}** dengan probabilitas "
+            f"sebesar **{probability*100:.2f}%**. "
+            f"Nilai probabilitas ini menunjukkan tingkat keyakinan model terhadap prediksi yang dihasilkan."
+        )
+
+        # =====================================================
+        # ANALISIS FAKTOR DOMINAN
+        # =====================================================
+        st.subheader("⚠️ Faktor Risiko yang Mempengaruhi")
+
+        faktor = []
+
+        if glucose >= 126:
+            faktor.append("Glukosa darah tinggi (>126 mg/dL)")
+        if bmi >= 25:
+            faktor.append("BMI berlebih / obesitas")
+        if age >= 45:
+            faktor.append("Usia berisiko")
+        if blood_pressure >= 90:
+            faktor.append("Tekanan darah tinggi")
+        if dpf >= 0.8:
+            faktor.append("Riwayat genetik diabetes")
+
+        if faktor:
+            for f in faktor:
+                st.write(f"• {f}")
         else:
-            bmi_cat, color = "Obesity", "#F44336"
-        st.markdown(f"""<div style="background:{color}; padding:10px; border-radius:10px; text-align:center; color:#fff;">
-                    <div style="font-size:13px;">Kategori BMI</div>
-                    <div style="font-size:16px;font-weight:bold;">{bmi_cat}</div></div>""", unsafe_allow_html=True)
+            st.write("Tidak terdapat faktor risiko dominan berdasarkan input.")
 
-    # Glucose Category
-    with col3:
-        if glucose < 100:
-            glu_cat, color = "Normal", "#4CAF50"
-        elif glucose < 126:
-            glu_cat, color = "Prediabetes", "#EBD300"
-        else:
-            glu_cat, color = "Diabetes", "#F44336"
-        st.markdown(f"""<div style="background:{color}; padding:10px; border-radius:10px; text-align:center; color:#fff;">
-                    <div style="font-size:13px;">Kategori Glukosa</div>
-                    <div style="font-size:16px;font-weight:bold;">{glu_cat}</div></div>""", unsafe_allow_html=True)
+        # =====================================================
+        # REKOMENDASI
+        # =====================================================
+        st.subheader("🩺 Rekomendasi")
 
-    st.write("") 
+        rekomendasi = []
 
-    # 4. Pemrosesan Data untuk Prediksi
-    user_df = pd.DataFrame({
-        "Pregnancies": [pregnancies],
-        "Glucose": [glucose],
-        "BloodPressure": [blood_pressure],
-        "SkinThickness": [skin_thickness],
-        "Insulin": [insulin],
-        "BMI": [bmi],
-        "DiabetesPedigreeFunction": [dpf],
-        "Age": [age]
-    })
+        if glucose >= 126:
+            rekomendasi.append("Mengontrol asupan gula dan karbohidrat")
+        if bmi >= 25:
+            rekomendasi.append("Menurunkan berat badan secara bertahap")
+        if blood_pressure >= 90:
+            rekomendasi.append("Rutin mengontrol tekanan darah")
+        if prediction == 1:
+            rekomendasi.append("Disarankan melakukan pemeriksaan medis lanjutan")
 
-    # Penting: Urutan fitur harus sama dengan saat training model
-    user_processed = user_df[feature_names]
+        for r in rekomendasi:
+            st.write(f"✔ {r}")
 
-    # 5. Eksekusi Prediksi
-    if st.button("Analisis Risiko Diabetes"):
-        # Hitung Probabilitas (Logistic Regression)
-        prob = model.predict_proba(user_processed)[0][1]
-        prob_percent = prob * 100
-        
-        st.write("### 🔍 Hasil Analisis")
-        st.metric("Tingkat Keyakinan Risiko", f"{prob_percent:.2f}%")
+        st.warning("Hasil prediksi ini bersifat pendukung keputusan dan tidak menggantikan diagnosis dokter.")
 
-        if prob >= 0.5:
-            st.error("⚠️ Hasil: Pasien berisiko tinggi menderita **Diabetes**.")
-            st.markdown("""
-            **Rekomendasi Tindakan:**
-            - Segera lakukan konsultasi dengan tenaga medis profesional.
-            - Pantau asupan karbohidrat dan gula secara ketat.
-            - Lakukan pemeriksaan Glukosa Darah Puasa (GDP).
-            """)
-        else:
-            st.success("✅ Hasil: Pasien berada pada risiko **Rendah** (Sehat).")
-            st.markdown("""
-            **Rekomendasi Tindakan:**
-            - Pertahankan pola makan seimbang dan gaya hidup aktif.
-            - Lakukan pemeriksaan kesehatan rutin tahunan.
-            """)
 
-        with st.expander("Lihat Detail Teknis"):
-            st.write(f"Raw Probability Score: `{prob:.4f}`")
-            st.write("Threshold klasifikasi yang digunakan adalah 0.50.")
-
-# Jalankan fungsi jika file dieksekusi secara langsung
+# =====================================================
+# MAIN
+# =====================================================
 if __name__ == "__main__":
     prediction_app_diabetes()
