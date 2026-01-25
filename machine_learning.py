@@ -1,148 +1,175 @@
 import streamlit as st
 import pandas as pd
 import numpy as np
-import altair as alt
+import matplotlib.pyplot as plt
+
 from sklearn.preprocessing import MinMaxScaler
 from sklearn.model_selection import train_test_split
 from sklearn.linear_model import LogisticRegression
-from sklearn.metrics import accuracy_score, precision_score, recall_score, f1_score, confusion_matrix, roc_auc_score
-from imblearn.over_sampling import SMOTE 
+from sklearn.metrics import (
+    accuracy_score, precision_score, recall_score,
+    f1_score, roc_auc_score, confusion_matrix, roc_curve
+)
+from imblearn.over_sampling import SMOTE
 import joblib
 
-def ml_model_diabetes():
-    # 1. Membaca Dataset
-    df = pd.read_csv('diabetes (2).csv')
-    
-    st.title("Analisis Prediksi Diabetes (Logistic Regression)")
 
-    # --- BAGIAN HASIL PENANGANAN MISSING VALUES ---
-    st.write('### 1. Hasil Penanganan Missing Values (Nilai 0 Medis)')
+def ml_model():
+
+    st.subheader("📘 Machine Learning - Analisis Diabetes")
+
+    # ===============================
+    # LOAD DATA
+    # ===============================
+    df = pd.read_csv("diabetes (2).csv")
+
+    # ===============================
+    # PREPROCESSING MEDIS
+    # ===============================
     cols_fix = ['Glucose', 'BloodPressure', 'SkinThickness', 'Insulin', 'BMI']
-    
-    # Menghitung jumlah nol sebelum diperbaiki untuk ditampilkan
-    null_counts = {col: int((df[col] == 0).sum()) for col in cols_fix}
-    
     for col in cols_fix:
         df[col] = df[col].replace(0, np.nan)
         df[col] = df[col].fillna(df[col].median())
-    
-    # Menampilkan tabel hasil missing values
-    df_missing = pd.DataFrame(list(null_counts.items()), columns=['Fitur Medis', 'Jumlah Nilai 0 (Awal)'])
-    st.table(df_missing)
-    st.success("Semua nilai 0 di atas telah berhasil digantikan dengan nilai Median.")
 
-    # --- BAGIAN HASIL DETEKSI OUTLIER ---
-    st.write('### 2. Hasil Deteksi Outlier (Metode IQR)') 
-    numbers = df.drop(columns=['Outcome']).columns
-    
-    Q1 = df[numbers].quantile(0.25)
-    Q3 = df[numbers].quantile(0.75)
-    IQR = Q3 - Q1
-    lower_bound = Q1 - 1.5 * IQR
-    upper_bound = Q3 + 1.5 * IQR
-    
-    old_shape = df.shape[0]
-    df = df[~((df[numbers] < lower_bound) | (df[numbers] > upper_bound)).any(axis=1)]
-    new_shape = df.shape[0]
-    
-    # Menampilkan ringkasan angka outlier
-    col_out1, col_out2, col_out3 = st.columns(3)
-    col_out1.metric("Data Awal", f"{old_shape} baris")
-    col_out2.metric("Outlier Dibuang", f"{old_shape - new_shape} baris")
-    col_out3.metric("Data Bersih", f"{new_shape} baris")
+    X = df.drop("Outcome", axis=1)
+    y = df["Outcome"]
 
-    st.write('**Preview Dataset Bersih:**')
-    st.dataframe(df.head())
+    # ===============================
+    # SPLIT DATA
+    # ===============================
+    X_train, X_test, y_train, y_test = train_test_split(
+        X, y, test_size=0.2, random_state=42
+    )
 
-    # --- BAGIAN VISUALISASI PERBANDINGAN ---
-    st.write('### 3. Visualisasi Perbandingan (Density Plot)')
-    st.write("Grafik di bawah menunjukkan perbandingan distribusi data sebelum dan sesudah normalisasi (Min-Max Scaling).")
-    
-    df_select = df.copy()
+    # ===============================
+    # NORMALISASI (UNTUK MODEL)
+    # ===============================
     scaler = MinMaxScaler()
-    df_select[numbers] = scaler.fit_transform(df_select[numbers])
+    X_train_scaled = scaler.fit_transform(X_train)
+    X_test_scaled = scaler.transform(X_test)
 
-    col_vis1, col_vis2 = st.columns(2)
-    with col_vis1:
-        st.write('**Sebelum Normalisasi (Glucose)**')
-        chart_pre = alt.Chart(df).transform_density('Glucose', as_=['Glucose', 'density']).mark_area(opacity=0.5).encode(
-            x=alt.X("Glucose:Q", title="Skala Asli (0-200)"), 
-            y="density:Q").properties(width=350, height=200)
-        st.altair_chart(chart_pre, use_container_width=True)
+    # ===============================
+    # HANDLE IMBALANCE
+    # ===============================
+    smote = SMOTE(random_state=42)
+    X_train_res, y_train_res = smote.fit_resample(
+        X_train_scaled, y_train
+    )
 
-    with col_vis2:
-        st.write('**Setelah Normalisasi (Glucose)**')
-        chart_post = alt.Chart(df_select).transform_density('Glucose', as_=['Glucose', 'density']).mark_area(opacity=0.5, color='orange').encode(
-            x=alt.X("Glucose:Q", title="Skala Normal (0-1)"), 
-            y="density:Q").properties(width=350, height=200)
-        st.altair_chart(chart_post, use_container_width=True)
-
-    # 4. Correlation Heatmap
-    st.write('### 4. Korelasi Antar Variabel')
-    corr = df.corr().reset_index().melt('index')
-    corr.columns = ['Variable1', 'Variable2', 'Correlation']
-    heatmap = alt.Chart(corr).mark_rect().encode(
-        x='Variable2:N', y='Variable1:N',
-        color=alt.Color('Correlation:Q', scale=alt.Scale(scheme='blues')),
-        tooltip=['Variable1', 'Variable2', 'Correlation']
-    ).properties(width=600, height=400)
-    st.altair_chart(heatmap, use_container_width=True)
-
-    # 5. Handling Imbalance (SMOTE)
-    st.write("### 5. Handling Imbalance & Split Data")
-    X = df_select.drop("Outcome", axis=1)
-    y = df_select["Outcome"]
-    
-    X_train, X_test, y_train, y_test = train_test_split(X, y, test_size=0.2, random_state=42)
-    
-    sm = SMOTE(random_state=42)
-    X_train_res, y_train_res = sm.fit_resample(X_train, y_train)
-    
-    st.write(f"Distribusi Kelas Setelah SMOTE: **Sehat (0): {(y_train_res==0).sum()}, Diabetes (1): {(y_train_res==1).sum()}**")
-
-    # 6. Pemodelan & Interpretasi
-    st.write('### 6. Pemodelan & Interpretasi Risiko')
-    model = LogisticRegression()
+    # ===============================
+    # MODEL
+    # ===============================
+    model = LogisticRegression(max_iter=1000)
     model.fit(X_train_res, y_train_res)
-    
+
+    y_pred = model.predict(X_test_scaled)
+    y_proba = model.predict_proba(X_test_scaled)[:, 1]
+
+    # ======================================================
+    # 1️⃣ PEMODELAN & INTERPRETASI RISIKO (DATA ASLI)
+    # ======================================================
+    st.markdown("## 1️⃣ Pemodelan & Interpretasi Risiko")
+
     coef_df = pd.DataFrame({
-        "Feature": X.columns,
-        "Coefficient (β)": model.coef_[0]
+        "Fitur": X.columns,
+        "Koefisien (β)": model.coef_[0]
     })
-    coef_df["Odds Ratio (Risk)"] = np.exp(coef_df["Coefficient (β)"])
-    coef_df = coef_df.sort_values(by="Coefficient (β)", ascending=False)
-    
-    col_res1, col_res2 = st.columns([6,4])
-    with col_res1:
-        st.write("**Tabel Koefisien & Odds Ratio:**")
-        st.dataframe(coef_df)
-    with col_res2:
-        st.write("**Kesimpulan Faktor:**")
-        top_risk = coef_df.iloc[0]
-        st.success(f"Faktor risiko utama adalah **{top_risk['Feature']}**.")
-        st.info(f"Setiap kenaikan 1 satuan fitur ini meningkatkan risiko sebesar **{(top_risk['Odds Ratio (Risk)']-1)*100:.1f}%**.")
 
-    # 7. Evaluasi
-    st.write('### 7. Evaluasi Model Akhir')
-    y_pred = model.predict(X_test)
-    y_proba = model.predict_proba(X_test)[:, 1]
+    coef_df["Odds Ratio"] = np.exp(coef_df["Koefisien (β)"])
+    coef_df = coef_df.sort_values("Odds Ratio", ascending=False)
 
-    col_ev1, col_ev2 = st.columns(2)
-    with col_ev1:
-        cm = confusion_matrix(y_test, y_pred)
-        st.write("**Confusion Matrix:**")
-        st.write(cm)
-        
-    with col_ev2:
-        st.metric("Akurasi", f"{accuracy_score(y_test, y_pred)*100:.2f}%")
-        st.metric("Recall", f"{recall_score(y_test, y_pred)*100:.2f}%")
-        st.metric("ROC AUC", f"{roc_auc_score(y_test, y_proba)*100:.2f}%")
+    def kategori_risiko(or_val):
+        if or_val >= 2:
+            return "🔴 Risiko Tinggi"
+        elif or_val >= 1.3:
+            return "🟠 Risiko Sedang"
+        else:
+            return "🟢 Risiko Rendah"
 
-    # Simpan Model
+    coef_df["Kategori Risiko"] = coef_df["Odds Ratio"].apply(kategori_risiko)
+
+    st.dataframe(coef_df, use_container_width=True)
+
+    faktor = coef_df.iloc[0]
+    st.success(
+        f"Faktor risiko dominan adalah **{faktor['Fitur']}** "
+        f"dengan Odds Ratio **{faktor['Odds Ratio']:.2f}**."
+    )
+
+    # ======================================================
+    # 2️⃣ EVALUASI MODEL (PLOT)
+    # ======================================================
+    st.markdown("## 2️⃣ Evaluasi Model Akhir")
+
+    col1, col2, col3, col4 = st.columns(4)
+    col1.metric("Akurasi", f"{accuracy_score(y_test, y_pred)*100:.2f}%")
+    col2.metric("Precision", f"{precision_score(y_test, y_pred)*100:.2f}%")
+    col3.metric("Recall", f"{recall_score(y_test, y_pred)*100:.2f}%")
+    col4.metric("F1-Score", f"{f1_score(y_test, y_pred)*100:.2f}%")
+
+    # ===============================
+    # CONFUSION MATRIX PLOT
+    # ===============================
+    st.markdown("### Confusion Matrix")
+
+    cm = confusion_matrix(y_test, y_pred)
+
+    fig, ax = plt.subplots()
+    ax.imshow(cm, cmap="Blues")
+    ax.set_title("Confusion Matrix")
+    ax.set_xlabel("Prediksi")
+    ax.set_ylabel("Aktual")
+
+    for i in range(2):
+        for j in range(2):
+            ax.text(j, i, cm[i, j], ha="center", va="center", fontsize=14)
+
+    st.pyplot(fig)
+
+    # ===============================
+    # ROC CURVE
+    # ===============================
+    st.markdown("### ROC Curve")
+
+    fpr, tpr, _ = roc_curve(y_test, y_proba)
+    auc = roc_auc_score(y_test, y_proba)
+
+    fig2, ax2 = plt.subplots()
+    ax2.plot(fpr, tpr, label=f"AUC = {auc:.3f}")
+    ax2.plot([0, 1], [0, 1], linestyle="--")
+    ax2.set_xlabel("False Positive Rate")
+    ax2.set_ylabel("True Positive Rate")
+    ax2.set_title("ROC Curve")
+    ax2.legend()
+
+    st.pyplot(fig2)
+
+    # ======================================================
+    # 3️⃣ PEMILIHAN MODEL TERBAIK
+    # ======================================================
+    st.markdown("## 3️⃣ Pemilihan Model Terbaik")
+
+    st.write("""
+    Model **Logistic Regression** dipilih sebagai model terbaik karena:
+    - Memiliki interpretasi medis yang jelas
+    - Menyediakan Odds Ratio
+    - Stabil pada dataset kesehatan
+    - Cocok untuk deteksi dini penyakit
+    """)
+
+    # ======================================================
+    # 4️⃣ AKURASI MODEL
+    # ======================================================
+    st.markdown("## 4️⃣ Akurasi Model")
+
+    st.success(
+        f"Model menghasilkan akurasi sebesar "
+        f"**{accuracy_score(y_test, y_pred)*100:.2f}%** "
+        f"dan memiliki kemampuan klasifikasi yang baik."
+    )
+
+    # ===============================
+    # SIMPAN MODEL
+    # ===============================
     joblib.dump(model, "model_diabetes.pkl")
     joblib.dump(X.columns, "diabetes_features.pkl")
-def ml_model():
-    ml_model_diabetes()
-
-if __name__ == "__main__":
-    ml_model_diabetes()
